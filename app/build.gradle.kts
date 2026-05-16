@@ -99,11 +99,11 @@ dependencies {
     // Gson
     implementation("com.google.code.gson:gson:2.11.0")
 
-    // SQLCipher (optional encryption)
-    implementation("net.zetetic:android-database-sqlcipher:4.5.6")
+    // SQLCipher (optional encryption - requires JitPack or manual AAR, disabled for now)
+    // implementation("net.zetetic:android-database-sqlcipher:4.5.6")
 
-    // MPAndroidChart (for statistics)
-    implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
+    // MPAndroidChart (for statistics) - JitPack may be unreachable in China, enable when needed
+    // implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
