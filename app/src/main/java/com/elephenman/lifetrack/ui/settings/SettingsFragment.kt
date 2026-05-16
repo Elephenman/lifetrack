@@ -15,7 +15,9 @@ import androidx.preference.SwitchPreferenceCompat
 import com.elephenman.lifetrack.R
 import com.elephenman.lifetrack.data.migration.DataMigrationManager
 import com.elephenman.lifetrack.service.LocationTrackingService
+import dagger.hilt.android.AndroidEntryPoint
 
+@AndroidEntryPoint
 class SettingsFragment : PreferenceFragmentCompat() {
 
     private val migrationViewModel: DataMigrationViewModel by viewModels()

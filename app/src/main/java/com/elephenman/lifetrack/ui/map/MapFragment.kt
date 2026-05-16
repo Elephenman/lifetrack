@@ -1,9 +1,12 @@
 package com.elephenman.lifetrack.ui.map
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.elephenman.lifetrack.databinding.FragmentMapBinding
@@ -14,6 +17,8 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
+import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 
 @AndroidEntryPoint
 class MapFragment : Fragment() {
@@ -22,6 +27,7 @@ class MapFragment : Fragment() {
     private val binding get() = _binding!!
     private val viewModel: MapViewModel by viewModels()
     private lateinit var mapView: MapView
+    private var locationOverlay: MyLocationNewOverlay? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentMapBinding.inflate(inflater, container, false)
@@ -35,12 +41,39 @@ class MapFragment : Fragment() {
         mapView.setMultiTouchControls(true)
         mapView.setBuiltInZoomControls(false)
 
+        // 添加实时位置图层
+        setupLocationOverlay()
+
         return binding.root
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         observeData()
+    }
+
+    private fun setupLocationOverlay() {
+        val provider = GpsMyLocationProvider(requireContext())
+        locationOverlay = MyLocationNewOverlay(provider, mapView).apply {
+            enableMyLocation()
+            enableAutoStop = false  // 持续追踪，不自动停止
+            // 设置定位图标的锚点
+            setPersonAnchor(0.5f, 0.5f)
+            // 方向箭头
+            isDrawAccuracyEnabled = true
+        }
+        mapView.overlays.add(locationOverlay)
+
+        // 首次定位成功后移动到当前位置
+        locationOverlay?.runOnFirstFix {
+            activity?.runOnUiThread {
+                val myLocation = locationOverlay?.myLocation
+                if (myLocation != null) {
+                    mapView.controller.animateTo(GeoPoint(myLocation.latitude, myLocation.longitude))
+                    mapView.controller.setZoom(16)
+                }
+            }
+        }
     }
 
     private fun observeData() {
@@ -56,7 +89,12 @@ class MapFragment : Fragment() {
     }
 
     private fun redrawMap(points: List<com.elephenman.lifetrack.data.entity.LocationPoint>, stays: List<com.elephenman.lifetrack.data.entity.StayPoint>) {
+        // 保留位置图层，清除其他覆盖物
+        val locationOverlayIndex = mapView.overlays.indexOf(locationOverlay)
         mapView.overlays.clear()
+        if (locationOverlay != null) {
+            mapView.overlays.add(locationOverlay)
+        }
 
         // 绘制轨迹线
         if (points.isNotEmpty()) {
@@ -98,6 +136,8 @@ class MapFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         mapView.onResume()
+        // 确保位置追踪继续
+        locationOverlay?.enableMyLocation()
     }
 
     override fun onPause() {
@@ -107,6 +147,8 @@ class MapFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        locationOverlay?.disableMyLocation()
+        locationOverlay = null
         _binding = null
     }
 }

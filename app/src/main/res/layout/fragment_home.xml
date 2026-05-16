@@ -51,7 +51,7 @@
                     android:gravity="center"
                     android:padding="8dp">
 
-                    <TextView android:id="@+id/tvDistance" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="18sp" android:textStyle="bold" android:text="0km" />
+                    <TextView android:id="@+id/tvDistance" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="18sp" android:textStyle="bold" android:textColor="@color/text_primary" android:text="0km" />
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="@color/text_secondary" android:text="@string/today_distance" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -72,7 +72,7 @@
                     android:gravity="center"
                     android:padding="8dp">
 
-                    <TextView android:id="@+id/tvOutdoorTime" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="18sp" android:textStyle="bold" android:text="0h" />
+                    <TextView android:id="@+id/tvOutdoorTime" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="18sp" android:textStyle="bold" android:textColor="@color/text_primary" android:text="0h" />
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="@color/text_secondary" android:text="@string/today_outdoor" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -92,7 +92,7 @@
                     android:gravity="center"
                     android:padding="8dp">
 
-                    <TextView android:id="@+id/tvPlaceCount" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="18sp" android:textStyle="bold" android:text="0地" />
+                    <TextView android:id="@+id/tvPlaceCount" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="18sp" android:textStyle="bold" android:textColor="@color/text_primary" android:text="0地" />
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="@color/text_secondary" android:text="@string/today_places" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
