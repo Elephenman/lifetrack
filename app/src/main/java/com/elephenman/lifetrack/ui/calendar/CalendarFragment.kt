@@ -32,6 +32,10 @@ class CalendarFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         setupCalendar()
         observeData()
+        // 默认加载今天的数据
+        val today = Calendar.getInstance()
+        val dateStr = dateFormat.format(today.time)
+        viewModel.loadDate(dateStr)
     }
 
     private fun setupCalendar() {

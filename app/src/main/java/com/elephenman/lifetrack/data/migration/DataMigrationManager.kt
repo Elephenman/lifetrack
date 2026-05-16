@@ -94,17 +94,19 @@ class DataMigrationManager @Inject constructor(
 
             // 复制WAL和SHM文件（如果存在）
             val walFile = File(dbFile.parent, "$DB_NAME-wal")
-            if (walFile.exists()) {
+            val walExists = walFile.exists()
+            if (walExists) {
                 copyFile(walFile, File(backupDir, "$DB_NAME-wal"))
             }
             val shmFile = File(dbFile.parent, "$DB_NAME-shm")
-            if (shmFile.exists()) {
+            val shmExists = shmFile.exists()
+            if (shmExists) {
                 copyFile(shmFile, File(backupDir, "$DB_NAME-shm"))
             }
 
             // 清理旧备份中的WAL/SHM（如果新备份没有这些文件）
-            if (!walFile.exists()) File(backupDir, "$DB_NAME-wal").delete()
-            if (!shmFile.exists()) File(backupDir, "$DB_NAME-shm").delete()
+            if (!walExists) File(backupDir, "$DB_NAME-wal").delete()
+            if (!shmExists) File(backupDir, "$DB_NAME-shm").delete()
 
             // 3. 导出偏好设置
             exportPreferences(backupDir)

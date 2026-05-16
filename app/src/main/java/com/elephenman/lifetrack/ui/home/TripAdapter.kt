@@ -6,6 +6,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.elephenman.lifetrack.databinding.ItemTripBinding
+import android.graphics.Color
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -31,8 +32,8 @@ class TripAdapter : ListAdapter<TripItem, TripAdapter.TripViewHolder>(TripDiffCa
 
             // 停留点用不同背景色
             val bgColor = when (item.type) {
-                TripItem.Type.STAY -> 0x1A4CAF50  // 浅绿
-                TripItem.Type.TRIP -> 0x1AFF9800  // 浅橙
+                TripItem.Type.STAY -> Color.parseColor("#1A4CAF50")  // 浅绿半透明
+                TripItem.Type.TRIP -> Color.parseColor("#1AFF9800")  // 浅橙半透明
             }
             binding.root.setBackgroundColor(bgColor)
         }
