@@ -27,7 +27,7 @@ class TimelineView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xB0BEC5FF
+        color = 0xB0BEC5FF.toInt()
         textSize = 24f
         textAlign = Paint.Align.CENTER
     }
@@ -78,7 +78,7 @@ class TimelineView @JvmOverloads constructor(
         val hours = intArrayOf(0, 6, 12, 18, 24)
         hours.forEach { hour ->
             val x = (hour.toFloat() / 24f) * w
-            textPaint.color = 0x80FFFFFF
+            textPaint.color = 0x80FFFFFF.toInt()
             canvas.drawText("${hour}", x, h - 1f, textPaint)
         }
     }

@@ -83,7 +83,7 @@ class LocationTrackingService : LifecycleService() {
 
         // 启动前台服务
         val notification = buildNotification("正在记录轨迹...")
-        if (Build.VERSION.SDK_INT >= Build.VERSION.Q) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
                 notification,

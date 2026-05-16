@@ -251,9 +251,11 @@ class SettingsFragment : PreferenceFragmentCompat() {
     }
 
     private fun restartApp() {
-        val intent = requireContext().packageManager.getLaunchIntentForPackage(requireContext().packageName)
-        intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
-        startActivity(intent)
+        val launchIntent = requireContext().packageManager.getLaunchIntentForPackage(requireContext().packageName)
+        if (launchIntent != null) {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launchIntent)
+        }
         requireActivity().finish()
         // 强制退出进程以确保数据库完全重新初始化
         System.exit(0)
