@@ -93,7 +93,7 @@ class StayPointDetector @Inject constructor() {
 
             // 计算行程距离
             val tripPoints = allPoints.filter {
-                it.timestamp in (from.exitTime..to.enterTime)
+                it.timestamp >= from.exitTime && it.timestamp <= to.enterTime
             }
 
             val distance = calculateTotalDistance(tripPoints)

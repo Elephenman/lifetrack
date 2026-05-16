@@ -7,7 +7,6 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.elephenman.lifetrack.databinding.FragmentMapBinding
-import com.elephenman.lifetrack.ui.home.TimelineSegment
 import dagger.hilt.android.AndroidEntryPoint
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -45,13 +44,22 @@ class MapFragment : Fragment() {
     }
 
     private fun observeData() {
+        // 独立 observe 轨迹点
         viewModel.locationPoints.observe(viewLifecycleOwner) { points ->
-            if (points.isEmpty()) return@observe
+            redrawMap(points, viewModel.stayPoints.value ?: emptyList())
+        }
 
-            // 清除旧覆盖物
-            mapView.overlays.clear()
+        // 独立 observe 停留点
+        viewModel.stayPoints.observe(viewLifecycleOwner) { stays ->
+            redrawMap(viewModel.locationPoints.value ?: emptyList(), stays)
+        }
+    }
 
-            // 绘制轨迹线
+    private fun redrawMap(points: List<com.elephenman.lifetrack.data.entity.LocationPoint>, stays: List<com.elephenman.lifetrack.data.entity.StayPoint>) {
+        mapView.overlays.clear()
+
+        // 绘制轨迹线
+        if (points.isNotEmpty()) {
             val trajectoryPoints = points.map { GeoPoint(it.latitude, it.longitude) }
             val polyline = Polyline().apply {
                 setPoints(trajectoryPoints)
@@ -60,25 +68,24 @@ class MapFragment : Fragment() {
             }
             mapView.overlays.add(polyline)
 
-            // 绘制停留点标记
-            viewModel.stayPoints.observe(viewLifecycleOwner) { stays ->
-                stays.forEach { stay ->
-                    val marker = Marker(mapView).apply {
-                        position = GeoPoint(stay.latCenter, stay.lngCenter)
-                        title = stay.poiName ?: "未知地点"
-                        snippet = "停留${formatDuration(stay.exitTime - stay.enterTime)}"
-                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    }
-                    mapView.overlays.add(marker)
-                }
-                mapView.invalidate()
-            }
-
             // 移动到轨迹中心
             val center = trajectoryPoints[trajectoryPoints.size / 2]
             mapView.controller.setCenter(center)
             mapView.controller.setZoom(15)
         }
+
+        // 绘制停留点标记
+        stays.forEach { stay ->
+            val marker = Marker(mapView).apply {
+                position = GeoPoint(stay.latCenter, stay.lngCenter)
+                title = stay.poiName ?: "未知地点"
+                snippet = "停留${formatDuration(stay.exitTime - stay.enterTime)}"
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            }
+            mapView.overlays.add(marker)
+        }
+
+        mapView.invalidate()
     }
 
     private fun formatDuration(ms: Long): String {

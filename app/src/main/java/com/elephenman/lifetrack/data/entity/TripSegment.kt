@@ -8,8 +8,8 @@ import androidx.room.*
 @Entity(
     tableName = "trip_segment",
     foreignKeys = [
-        ForeignKey(entity = StayPoint::class, parentColumns = ["id"], childColumns = ["fromStayId"]),
-        ForeignKey(entity = StayPoint::class, parentColumns = ["id"], childColumns = ["toStayId"])
+        ForeignKey(entity = StayPoint::class, parentColumns = ["id"], childColumns = ["fromStayId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = StayPoint::class, parentColumns = ["id"], childColumns = ["toStayId"], onDelete = ForeignKey.CASCADE)
     ],
     indices = [Index("date"), Index("fromStayId"), Index("toStayId")]
 )
