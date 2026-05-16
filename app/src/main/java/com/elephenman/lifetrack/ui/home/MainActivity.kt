@@ -21,6 +21,7 @@ import dagger.hilt.android.AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+    private var navSetupNeeded = true
 
     private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -61,15 +62,25 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+    }
 
-        setupNavigation()
+    override fun onResume() {
+        super.onResume()
+        if (navSetupNeeded) {
+            setupNavigation()
+        }
         requestNecessaryPermissions()
     }
 
     private fun setupNavigation() {
         val navView: BottomNavigationView = binding.navView
-        val navController = findNavController(R.id.nav_host_fragment)
-        navView.setupWithNavController(navController)
+        try {
+            val navController = findNavController(R.id.nav_host_fragment)
+            navView.setupWithNavController(navController)
+            navSetupNeeded = false
+        } catch (e: IllegalStateException) {
+            // NavHostFragment 尚未创建，下次 onResume 重试
+        }
     }
 
     private fun requestNecessaryPermissions() {
