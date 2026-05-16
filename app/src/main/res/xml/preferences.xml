@@ -22,6 +22,18 @@
             android:summary="@string/pref_battery_summary" />
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="数据迁移">
+        <Preference
+            android:key="data_backup"
+            android:title="@string/pref_backup"
+            android:summary="@string/pref_backup_summary" />
+
+        <Preference
+            android:key="data_restore"
+            android:title="@string/pref_restore"
+            android:summary="@string/pref_restore_summary" />
+    </PreferenceCategory>
+
     <PreferenceCategory android:title="数据管理">
         <Preference
             android:key="data_export"

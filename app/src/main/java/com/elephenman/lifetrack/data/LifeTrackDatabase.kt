@@ -27,6 +27,11 @@ abstract class LifeTrackDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: LifeTrackDatabase? = null
 
+        fun resetInstance() {
+            INSTANCE?.close()
+            INSTANCE = null
+        }
+
         fun getInstance(context: Context): LifeTrackDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(

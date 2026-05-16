@@ -23,6 +23,11 @@
     <string name="pref_offline_map">离线地图</string>
     <string name="pref_offline_map_summary">下载离线地图瓦片</string>
 
+    <string name="pref_backup">备份数据</string>
+    <string name="pref_backup_summary">将数据备份到 /sdcard/LifeTrack/ 文件夹，换手机时可复制此文件夹恢复数据</string>
+    <string name="pref_restore">恢复数据</string>
+    <string name="pref_restore_summary">未找到备份数据</string>
+
     <string name="notification_tracking">正在记录轨迹…</string>
     <string name="permission_location_rationale">需要定位权限来记录您的足迹</string>
     <string name="permission_background_rationale">需要后台定位权限来持续记录轨迹</string>
