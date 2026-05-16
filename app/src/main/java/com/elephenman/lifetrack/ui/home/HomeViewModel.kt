@@ -111,7 +111,7 @@ class HomeViewModel @Inject constructor(
             ))
 
             // 如果有对应的行程段，添加行程
-            val trip = trips.find { it.fromStayId == stay.id || (it.startTime in stay.exitTime..stay.exitTime + 60000) }
+            val trip = trips.find { it.fromStayId == stay.id || (it.startTime >= stay.exitTime && it.startTime <= stay.exitTime + 60000) }
             if (trip != null) {
                 items.add(TripItem(
                     type = TripItem.Type.TRIP,

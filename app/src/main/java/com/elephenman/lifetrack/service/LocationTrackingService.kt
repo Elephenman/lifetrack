@@ -267,7 +267,7 @@ class LocationTrackingService : LifecycleService() {
         return -1
     }
 
-    private fun Double.format(digits: Int) = "%.${digits}f".format(this)
+    private fun Double.format(digits: Int) = String.format("%.${digits}f", this)
 
     override fun onBind(intent: Intent): IBinder? = null
 
