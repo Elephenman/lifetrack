@@ -1,18 +1,16 @@
 package com.elephenman.lifetrack.ui.map
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import androidx.core.content.ContextCompat
+import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.elephenman.lifetrack.databinding.FragmentMapBinding
 import dagger.hilt.android.AndroidEntryPoint
 import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
@@ -28,6 +26,22 @@ class MapFragment : Fragment() {
     private val viewModel: MapViewModel by viewModels()
     private lateinit var mapView: MapView
     private var locationOverlay: MyLocationNewOverlay? = null
+    private lateinit var tvCoordInfo: TextView
+    private lateinit var tvAccuracy: TextView
+
+    // 高德地图瓦片源（国内速度快，不需要API Key）
+    private val gaodeTileSource = XYTileSource(
+        "GaodeMap",  // name
+        0,           // min zoom
+        18,          // max zoom
+        256,         // tile size pixels
+        ".png",      // file extension
+        arrayOf(
+            "https://webrd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}",
+            "https://webrd02.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}",
+            "https://webrd03.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}"
+        )
+    )
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentMapBinding.inflate(inflater, container, false)
@@ -37,9 +51,13 @@ class MapFragment : Fragment() {
         Configuration.getInstance().userAgentValue = "com.elephenman.lifetrack"
 
         mapView = binding.mapView
-        mapView.setTileSource(TileSourceFactory.MAPNIK)
+        // 使用高德地图瓦片（国内可直连，中文标注）
+        mapView.setTileSource(gaodeTileSource)
         mapView.setMultiTouchControls(true)
         mapView.setBuiltInZoomControls(false)
+
+        tvCoordInfo = binding.tvCoordInfo
+        tvAccuracy = binding.tvAccuracy
 
         // 添加实时位置图层
         setupLocationOverlay()
@@ -56,10 +74,8 @@ class MapFragment : Fragment() {
         val provider = GpsMyLocationProvider(requireContext())
         locationOverlay = MyLocationNewOverlay(provider, mapView).apply {
             enableMyLocation()
-            enableAutoStop = false  // 持续追踪，不自动停止
-            // 设置定位图标的锚点
+            enableAutoStop = false  // 持续追踪
             setPersonAnchor(0.5f, 0.5f)
-            // 方向箭头
             isDrawAccuracyEnabled = true
         }
         mapView.overlays.add(locationOverlay)
@@ -71,18 +87,36 @@ class MapFragment : Fragment() {
                 if (myLocation != null) {
                     mapView.controller.animateTo(GeoPoint(myLocation.latitude, myLocation.longitude))
                     mapView.controller.setZoom(16)
+                    updateCoordDisplay(myLocation.latitude, myLocation.longitude, locationOverlay?.lastFix?.accuracy)
                 }
             }
         }
     }
 
+    /**
+     * 更新坐标信息显示
+     */
+    private fun updateCoordDisplay(lat: Double, lng: Double, accuracy: Float?) {
+        tvCoordInfo.text = String.format("%.6f, %.6f", lat, lng)
+        if (accuracy != null) {
+            tvAccuracy.text = String.format("±%.0fm", accuracy)
+            tvAccuracy.setTextColor(
+                when {
+                    accuracy < 10 -> android.graphics.Color.parseColor("#4CAF50")  // 绿色 - 精度高
+                    accuracy < 30 -> android.graphics.Color.parseColor("#FF9800")  // 橙色 - 中等
+                    else -> android.graphics.Color.parseColor("#F44336")           // 红色 - 精度低
+                }
+            )
+        } else {
+            tvAccuracy.text = ""
+        }
+    }
+
     private fun observeData() {
-        // 独立 observe 轨迹点
         viewModel.locationPoints.observe(viewLifecycleOwner) { points ->
             redrawMap(points, viewModel.stayPoints.value ?: emptyList())
         }
 
-        // 独立 observe 停留点
         viewModel.stayPoints.observe(viewLifecycleOwner) { stays ->
             redrawMap(viewModel.locationPoints.value ?: emptyList(), stays)
         }
@@ -90,7 +124,6 @@ class MapFragment : Fragment() {
 
     private fun redrawMap(points: List<com.elephenman.lifetrack.data.entity.LocationPoint>, stays: List<com.elephenman.lifetrack.data.entity.StayPoint>) {
         // 保留位置图层，清除其他覆盖物
-        val locationOverlayIndex = mapView.overlays.indexOf(locationOverlay)
         mapView.overlays.clear()
         if (locationOverlay != null) {
             mapView.overlays.add(locationOverlay)
@@ -106,7 +139,6 @@ class MapFragment : Fragment() {
             }
             mapView.overlays.add(polyline)
 
-            // 移动到轨迹中心
             val center = trajectoryPoints[trajectoryPoints.size / 2]
             mapView.controller.setCenter(center)
             mapView.controller.setZoom(15)
@@ -136,8 +168,17 @@ class MapFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         mapView.onResume()
-        // 确保位置追踪继续
         locationOverlay?.enableMyLocation()
+
+        // 持续更新坐标显示
+        locationOverlay?.runOnFirstFix {
+            activity?.runOnUiThread {
+                val loc = locationOverlay?.myLocation
+                if (loc != null) {
+                    updateCoordDisplay(loc.latitude, loc.longitude, locationOverlay?.lastFix?.accuracy)
+                }
+            }
+        }
     }
 
     override fun onPause() {
