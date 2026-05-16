@@ -1,23 +1,66 @@
-local.properties
-*.iml
-.gradle
-/.idea
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-
-# Android Studio
-.idea/
+# Built application files
 *.apk
 *.aab
 *.ap_
 *.dex
+*.class
+*.jar
+*.war
+*.ear
+
+# Build directories
+build/
+app/build/
+.gradle/
+
+# Local configuration
+local.properties
+
+# IDE - Android Studio / IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# IDE - Eclipse
+.project
+.classpath
+.settings/
+bin/
+gen/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# NDK / CMake
+.externalNativeBuild/
+.cxx/
+.ccache/
+
+# Captures / Profiling
+captures/
+*.hprof
+*.log
 
 # OSMDroid tile cache
 osmdroid/
 
-# Built application files
-app/build/
-build/
+# Keystore (never commit signing keys)
+*.jks
+*.keystore
+
+# Gradle wrapper (optional - some teams track it)
+# gradle/wrapper/gradle-wrapper.jar
+
+# Kotlin
+*.kotlin_module
+
+# Lint
+lint-report.html
+lint-results.xml
+
+# Data / Cache
+.cache/

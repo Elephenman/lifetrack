@@ -1,6 +1,7 @@
 package com.elephenman.lifetrack.ui.map
 
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -10,8 +11,9 @@ import androidx.fragment.app.viewModels
 import com.elephenman.lifetrack.databinding.FragmentMapBinding
 import dagger.hilt.android.AndroidEntryPoint
 import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.XYTileSource
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.GeoPoint
+import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.Marker
@@ -29,19 +31,45 @@ class MapFragment : Fragment() {
     private lateinit var tvCoordInfo: TextView
     private lateinit var tvAccuracy: TextView
 
-    // 高德地图瓦片源（国内速度快，不需要API Key）
-    private val gaodeTileSource = XYTileSource(
-        "GaodeMap",  // name
-        0,           // min zoom
-        18,          // max zoom
-        256,         // tile size pixels
-        ".png",      // file extension
-        arrayOf(
-            "https://webrd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}",
-            "https://webrd02.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}",
-            "https://webrd03.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}"
-        )
+    /**
+     * 自定义瓦片源：支持URL模板替换 {x}, {y}, {z}
+     * OSMDroid 6.1.x中 getTileURLString 参数是 long (MapTileIndex)
+     * getBaseUrl()只返回单个String，需要自己保存URL数组
+     */
+    private val gaodeUrls = arrayOf(
+        "https://webrd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}",
+        "https://webrd02.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}",
+        "https://webrd03.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}",
+        "https://webrd04.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}"
     )
+
+    private val gaodeTileSource = object : OnlineTileSourceBase(
+        "GaodeMap", 0, 18, 256, ".png", gaodeUrls, "© 高德地图"
+    ) {
+        override fun getTileURLString(pMapTileIndex: Long): String {
+            val z = MapTileIndex.getZoom(pMapTileIndex)
+            val x = MapTileIndex.getX(pMapTileIndex)
+            val y = MapTileIndex.getY(pMapTileIndex)
+            return gaodeUrls[x % gaodeUrls.size]
+                .replace("{x}", x.toString())
+                .replace("{y}", y.toString())
+                .replace("{z}", z.toString())
+        }
+    }
+
+    // OSM Mapnik（备选，国内可能慢）
+    private val osmTileSource = object : OnlineTileSourceBase(
+        "Mapnik", 0, 19, 256, ".png",
+        arrayOf("https://tile.openstreetmap.org/{z}/{x}/{y}.png"),
+        "© OpenStreetMap"
+    ) {
+        override fun getTileURLString(pMapTileIndex: Long): String {
+            val z = MapTileIndex.getZoom(pMapTileIndex)
+            val x = MapTileIndex.getX(pMapTileIndex)
+            val y = MapTileIndex.getY(pMapTileIndex)
+            return "https://tile.openstreetmap.org/$z/$x/$y.png"
+        }
+    }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentMapBinding.inflate(inflater, container, false)
@@ -52,7 +80,9 @@ class MapFragment : Fragment() {
 
         mapView = binding.mapView
         // 使用高德地图瓦片（国内可直连，中文标注）
+        Log.d("LifeTrack", "Setting tile source to GaodeMap")
         mapView.setTileSource(gaodeTileSource)
+        // 强制覆盖OSMDroid默认tile source（避免Configuration缓存旧值）
         mapView.setMultiTouchControls(true)
         mapView.setBuiltInZoomControls(false)
 

@@ -86,8 +86,11 @@ class SettingsFragment : PreferenceFragmentCompat() {
             Toast.makeText(requireContext(), "功能开发中...", Toast.LENGTH_SHORT).show()
             true
         }
+    }
 
-        // 观察迁移状态
+    override fun onViewCreated(view: android.view.View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        // 在View创建后再观察LiveData（需要viewLifecycleOwner）
         observeMigrationState()
         updateBackupInfo()
     }
