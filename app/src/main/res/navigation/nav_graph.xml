@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/navigation_home">
+
+    <fragment
+        android:id="@+id/navigation_home"
+        android:name="com.elephenman.lifetrack.ui.home.HomeFragment"
+        android:title="今日" />
+
+    <fragment
+        android:id="@+id/navigation_map"
+        android:name="com.elephenman.lifetrack.ui.map.MapFragment"
+        android:title="地图" />
+
+    <fragment
+        android:id="@+id/navigation_calendar"
+        android:name="com.elephenman.lifetrack.ui.calendar.CalendarFragment"
+        android:title="日历" />
+
+    <fragment
+        android:id="@+id/navigation_stats"
+        android:name="com.elephenman.lifetrack.ui.stats.StatsFragment"
+        android:title="统计" />
+
+    <fragment
+        android:id="@+id/navigation_settings"
+        android:name="com.elephenman.lifetrack.ui.settings.SettingsFragment"
+        android:title="设置" />
+
+</navigation>

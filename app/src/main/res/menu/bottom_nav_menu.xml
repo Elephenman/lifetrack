@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/navigation_home"
+        android:icon="@drawable/ic_home"
+        android:title="今日" />
+    <item
+        android:id="@+id/navigation_map"
+        android:icon="@drawable/ic_map"
+        android:title="地图" />
+    <item
+        android:id="@+id/navigation_calendar"
+        android:icon="@drawable/ic_calendar"
+        android:title="日历" />
+    <item
+        android:id="@+id/navigation_stats"
+        android:icon="@drawable/ic_chart"
+        android:title="统计" />
+    <item
+        android:id="@+id/navigation_settings"
+        android:icon="@drawable/ic_settings"
+        android:title="设置" />
+</menu>

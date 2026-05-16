@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <PreferenceCategory android:title="基本设置">
+        <SwitchPreferenceCompat
+            android:key="auto_start_on_boot"
+            android:title="@string/pref_auto_start"
+            android:summary="@string/pref_auto_start_summary"
+            android:defaultValue="true" />
+
+        <SwitchPreferenceCompat
+            android:key="stealth_mode"
+            android:title="@string/pref_stealth_mode"
+            android:summary="@string/pref_stealth_mode_summary"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="省电与权限">
+        <Preference
+            android:key="battery_optimization"
+            android:title="@string/pref_battery"
+            android:summary="@string/pref_battery_summary" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="数据管理">
+        <Preference
+            android:key="data_export"
+            android:title="@string/pref_export" />
+
+        <EditTextPreference
+            android:key="data_retention_days"
+            android:title="@string/pref_data_retention"
+            android:defaultValue="365"
+            android:inputType="number" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="地图">
+        <Preference
+            android:key="offline_map"
+            android:title="@string/pref_offline_map"
+            android:summary="@string/pref_offline_map_summary" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="关于">
+        <Preference
+            android:key="about"
+            android:title="@string/pref_about"
+            android:summary="足迹日记 v1.0.0 | 本地运行 零云端" />
+    </PreferenceCategory>
+
+</PreferenceScreen>

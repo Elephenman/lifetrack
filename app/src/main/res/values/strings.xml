@@ -1,0 +1,29 @@
+<resources>
+    <string name="app_name">足迹日记</string>
+    <string name="nav_home">今日</string>
+    <string name="nav_map">地图</string>
+    <string name="nav_calendar">日历</string>
+    <string name="nav_stats">统计</string>
+    <string name="nav_settings">设置</string>
+
+    <string name="today_distance">出行距离</string>
+    <string name="today_outdoor">外出时长</string>
+    <string name="today_places">停留点</string>
+
+    <string name="pref_auto_start">开机自启动</string>
+    <string name="pref_auto_start_summary">手机开机后自动开始记录轨迹</string>
+    <string name="pref_stealth_mode">隐身模式</string>
+    <string name="pref_stealth_mode_summary">暂停定位记录</string>
+    <string name="pref_battery">电池优化白名单</string>
+    <string name="pref_battery_summary">添加到白名单防止被系统杀进程</string>
+    <string name="pref_sampling">采样频率</string>
+    <string name="pref_data_retention">数据保留天数</string>
+    <string name="pref_export">导出数据</string>
+    <string name="pref_about">关于</string>
+    <string name="pref_offline_map">离线地图</string>
+    <string name="pref_offline_map_summary">下载离线地图瓦片</string>
+
+    <string name="notification_tracking">正在记录轨迹…</string>
+    <string name="permission_location_rationale">需要定位权限来记录您的足迹</string>
+    <string name="permission_background_rationale">需要后台定位权限来持续记录轨迹</string>
+</resources>
