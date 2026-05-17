@@ -8,7 +8,12 @@ import com.elephenman.lifetrack.data.entity.DailySummary
 import com.elephenman.lifetrack.data.entity.StayPoint
 import com.elephenman.lifetrack.data.entity.TripSegment
 import com.elephenman.lifetrack.data.repository.LocationRepository
+import com.elephenman.lifetrack.engine.DailySummaryComputer
+import com.elephenman.lifetrack.service.LocationTrackingService
+import com.elephenman.lifetrack.service.StayInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -37,7 +42,8 @@ data class TimelineSegment(
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val repository: LocationRepository
+    private val repository: LocationRepository,
+    private val dailySummaryComputer: DailySummaryComputer
 ) : ViewModel() {
 
     private val _date = MutableLiveData<Date>()
@@ -52,6 +58,15 @@ class HomeViewModel @Inject constructor(
     private val _timelineData = MutableLiveData<List<TimelineSegment>>()
     val timelineData: LiveData<List<TimelineSegment>> = _timelineData
 
+    private val _currentStayInfo = MutableLiveData<StayInfo?>()
+    val currentStayInfo: LiveData<StayInfo?> = _currentStayInfo
+
+    // 实时计时器：每秒刷新停留时长
+    private val _stayDurationText = MutableLiveData<String>()
+    val stayDurationText: LiveData<String> = _stayDurationText
+
+    private var stayTimerJob: Job? = null
+
     private val dateStrFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
     init {
@@ -65,7 +80,13 @@ class HomeViewModel @Inject constructor(
 
     fun loadDate(date: Date) {
         val dateStr = dateStrFormat.format(date)
+        val isToday = isSameDay(date, Date())
+
         viewModelScope.launch {
+            val existing = repository.getDailySummary(dateStr)
+            if (existing == null || isToday) {
+                dailySummaryComputer.computeAndSaveDailySummary(dateStr)
+            }
             repository.getDailySummaryFlow(dateStr).collect { summary ->
                 _dailySummary.postValue(summary)
             }
@@ -81,13 +102,41 @@ class HomeViewModel @Inject constructor(
                 _timelineData.postValue(items.map { buildTimelineSegment(it, date) })
             }
         }
+
+        // 监听实时停留状态
+        if (isToday) {
+            viewModelScope.launch {
+                LocationTrackingService.stayInfoFlow.collect { info ->
+                    _currentStayInfo.postValue(info)
+                    // 启动/停止计时器
+                    stayTimerJob?.cancel()
+                    if (info != null && info.enterTimeMs > 0) {
+                        stayTimerJob = viewModelScope.launch {
+                            while (true) {
+                                val elapsed = System.currentTimeMillis() - info.enterTimeMs
+                                _stayDurationText.postValue(formatElapsed(elapsed))
+                                delay(1000)
+                            }
+                        }
+                    } else {
+                        _stayDurationText.postValue("")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun isSameDay(d1: Date, d2: Date): Boolean {
+        val cal1 = Calendar.getInstance().apply { time = d1 }
+        val cal2 = Calendar.getInstance().apply { time = d2 }
+        return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR) &&
+               cal1.get(Calendar.DAY_OF_YEAR) == cal2.get(Calendar.DAY_OF_YEAR)
     }
 
     private fun buildTripItems(stays: List<StayPoint>, trips: List<TripSegment>, date: Date): List<TripItem> {
         val items = mutableListOf<TripItem>()
         val calendar = Calendar.getInstance().apply { time = date }
 
-        // 开头：0:00到第一个停留点进入
         if (stays.isNotEmpty() && stays.first().enterTime > getDayStart(date)) {
             items.add(TripItem(
                 type = TripItem.Type.STAY,
@@ -100,7 +149,6 @@ class HomeViewModel @Inject constructor(
         }
 
         stays.forEachIndexed { index, stay ->
-            // 添加停留点
             items.add(TripItem(
                 type = TripItem.Type.STAY,
                 startTime = stay.enterTime,
@@ -110,7 +158,6 @@ class HomeViewModel @Inject constructor(
                 icon = "📍"
             ))
 
-            // 如果有对应的行程段，添加行程
             val trip = trips.find { it.fromStayId == stay.id || (it.startTime >= stay.exitTime && it.startTime <= stay.exitTime + 60000) }
             if (trip != null) {
                 items.add(TripItem(
@@ -125,7 +172,6 @@ class HomeViewModel @Inject constructor(
             }
         }
 
-        // 结尾：最后一个停留点到24:00
         if (stays.isNotEmpty() && stays.last().exitTime < getDayEnd(date)) {
             items.add(TripItem(
                 type = TripItem.Type.STAY,
@@ -137,24 +183,21 @@ class HomeViewModel @Inject constructor(
             ))
         }
 
-        // 按时间排序
         return items.sortedBy { it.startTime }
     }
 
     private fun buildTimelineSegment(item: TripItem, date: Date): TimelineSegment {
         val color = when (item.type) {
-            TripItem.Type.STAY -> android.graphics.Color.parseColor("#4CAF50")  // 绿色
+            TripItem.Type.STAY -> android.graphics.Color.parseColor("#4CAF50")
             TripItem.Type.TRIP -> when (item.transportMode) {
-                "walk" -> android.graphics.Color.parseColor("#FF9800")   // 橙色
-                "bike" -> android.graphics.Color.parseColor("#2196F3")   // 蓝色
-                "car", "bus" -> android.graphics.Color.parseColor("#9C27B0")  // 紫色
-                else -> android.graphics.Color.parseColor("#607D8B")     // 灰蓝
+                "walk" -> android.graphics.Color.parseColor("#FF9800")
+                "bike" -> android.graphics.Color.parseColor("#2196F3")
+                "car", "bus" -> android.graphics.Color.parseColor("#9C27B0")
+                else -> android.graphics.Color.parseColor("#607D8B")
             }
         }
         return TimelineSegment(item.startTime, item.endTime, item.label, color, item.type)
     }
-
-    // --- 工具方法 ---
 
     private fun getDayStart(date: Date): Long {
         val cal = Calendar.getInstance().apply { time = date; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
@@ -191,5 +234,15 @@ class HomeViewModel @Inject constructor(
         "car", "bus" -> "🚌"
         "train" -> "🚄"
         else -> "➡️"
+    }
+
+    private fun formatElapsed(ms: Long): String {
+        val totalSec = ms / 1000
+        val h = totalSec / 3600
+        val m = (totalSec % 3600) / 60
+        val s = totalSec % 60
+        return if (h > 0) String.format("%d:%02d:%02d", h, m, s)
+               else if (m > 0) String.format("%d:%02d", m, s)
+               else "${s}秒"
     }
 }

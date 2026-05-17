@@ -38,4 +38,5 @@ class LocationRepository @Inject constructor(
     suspend fun getDailySummary(date: String) = dailySummaryDao.getByDate(date)
     fun getDailySummaryFlow(date: String) = dailySummaryDao.getByDateFlow(date)
     fun getAllDailySummariesFlow() = dailySummaryDao.getAllFlow()
+    suspend fun getDailySummariesByDateRange(startDate: String, endDate: String) = dailySummaryDao.getByDateRange(startDate, endDate)
 }

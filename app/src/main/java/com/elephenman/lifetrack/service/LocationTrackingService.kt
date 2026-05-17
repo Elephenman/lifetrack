@@ -10,8 +10,9 @@ import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
-import androidx.lifecycle.lifecycleScope
 import com.elephenman.lifetrack.R
+import com.elephenman.lifetrack.data.entity.StayPoint
+import com.elephenman.lifetrack.data.entity.TripSegment
 import com.elephenman.lifetrack.data.entity.LocationPoint
 import com.elephenman.lifetrack.data.repository.LocationRepository
 import com.elephenman.lifetrack.ui.home.MainActivity
@@ -21,17 +22,10 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.text.SimpleDateFormat
+import java.util.*
 import javax.inject.Inject
 
-/**
- * 核心定位服务 - 前台Service，开机自启，全天候GPS追踪
- *
- * 省电策略：
- * 1. 静止时：60s采样间隔
- * 2. 步行时：10s采样间隔
- * 3. 高速移动时(>30km/h)：5s采样间隔
- * 4. 精度>100m的点直接丢弃
- */
 @AndroidEntryPoint
 class LocationTrackingService : LifecycleService() {
 
@@ -48,12 +42,30 @@ class LocationTrackingService : LifecycleService() {
     private val _isTracking = MutableStateFlow(false)
     val isTracking: StateFlow<Boolean> = _isTracking
 
-    private var lastLocation: Location? = null
     private var lastMotionState: MotionState = MotionState.STATIONARY
-    private var currentAccuracyFilter: Float = 100f  // 精度阈值(m)
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
-    private enum class MotionState {
-        STATIONARY, WALKING, VEHICLE
+    // 实时停留检测状态
+    private var stayStart: Long = 0L
+    private var stayLat: Double = 0.0
+    private var stayLng: Double = 0.0
+    private var stayCount: Int = 0
+    private var stayMaxDist: Double = 0.0
+    private var lastSavedStayDate: String = ""
+    private var lastSavedStayStart: Long = 0L
+    // 移动中：保存起点的单条LocationPoint，用于行程段距离计算
+    private var tripStartSaved: Boolean = false
+
+    private enum class MotionState { STATIONARY, WALKING, VEHICLE }
+
+    companion object {
+        const val ACTION_START = "com.elephenman.lifetrack.ACTION_START"
+        const val ACTION_STOP = "com.elephenman.lifetrack.ACTION_STOP"
+        const val ACTION_TOGGLE = "com.elephenman.lifetrack.ACTION_TOGGLE"
+
+        private val _stayInfoFlow = MutableStateFlow<StayInfo?>(null)
+        val stayInfoFlow: StateFlow<StayInfo?> = _stayInfoFlow
     }
 
     override fun onCreate() {
@@ -65,45 +77,35 @@ class LocationTrackingService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-
-        when (intent?.action) {
-            ACTION_START -> startTracking()
-            ACTION_STOP -> stopTracking()
-            ACTION_TOGGLE -> {
-                if (_isTracking.value) stopTracking() else startTracking()
+        // null intent = 系统因START_STICKY重启服务 → 自动恢复追踪
+        if (intent == null || intent.action == null) {
+            startTracking()
+        } else {
+            when (intent.action) {
+                ACTION_START -> startTracking()
+                ACTION_STOP -> stopTracking()
+                ACTION_TOGGLE -> { if (_isTracking.value) stopTracking() else startTracking() }
             }
         }
-
-        return START_STICKY  // 被杀后自动重启
+        return START_STICKY
     }
 
     @SuppressLint("MissingPermission")
     private fun startTracking() {
         if (_isTracking.value) return
-
-        // 启动前台服务
         val notification = buildNotification("正在记录轨迹...")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            )
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
-
-        // 获取WakeLock（部分唤醒，保持CPU运行）
         acquireWakeLock()
-
-        // 开始定位请求
-        val request = buildLocationRequest()
-        fusedLocationClient.requestLocationUpdates(request, locationCallback, mainLooper)
-
+        fusedLocationClient.requestLocationUpdates(buildLocationRequest(), locationCallback, mainLooper)
         _isTracking.value = true
     }
 
     private fun stopTracking() {
+        finishCurrentStay()
         fusedLocationClient.removeLocationUpdates(locationCallback)
         releaseWakeLock()
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -114,23 +116,124 @@ class LocationTrackingService : LifecycleService() {
     private fun setupLocationCallback() {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
-                result.lastLocation?.let { location ->
-                    processLocation(location)
-                }
+                result.lastLocation?.let { processLocation(it) }
             }
         }
     }
 
     private fun processLocation(location: Location) {
-        // 精度过滤
-        if (location.accuracy > currentAccuracyFilter) return
+        val ok = !location.hasAccuracy() || location.accuracy <= 200f
+        val low = location.hasAccuracy() && location.accuracy > 200f && location.accuracy <= 500f
+        if (!ok && !low) return
 
-        // 运动状态推断 → 自适应采样频率
-        inferMotionState(location)
+        if (ok) inferMotionState(location)
 
-        // 存入数据库
-        lifecycleScope.launch(Dispatchers.IO) {
-            val point = LocationPoint(
+        // 实时停留检测（仅高精度点）
+        if (ok) detectStay(location)
+
+        // 通知更新
+        updateStayNotification(location)
+    }
+
+    /**
+     * 停留检测核心逻辑：
+     * - GPS持续采集，但位置不变时不写入数据库
+     * - 50m内视为同一地点，仅更新实时状态
+     * - 离开停留点时才保存StayPoint（enterTime + exitTime）
+     * - 移动中保存行程起点/终点的LocationPoint用于距离计算
+     */
+    private fun detectStay(location: Location) {
+        val now = location.time
+
+        if (stayStart == 0L) {
+            // 开始新的潜在停留
+            stayStart = now
+            stayLat = location.latitude
+            stayLng = location.longitude
+            stayCount = 1
+            stayMaxDist = 0.0
+            tripStartSaved = false
+            // 保存行程起点（用于距离计算）
+            saveLocationPoint(location)
+            tripStartSaved = true
+            _stayInfoFlow.value = StayInfo(location.latitude, location.longitude, now, false)
+            return
+        }
+
+        val dist = haversine(stayLat, stayLng, location.latitude, location.longitude)
+
+        if (dist <= 50.0) {
+            // 还在同一地点 → 不入库，只更新实时状态
+            stayCount++
+            stayMaxDist = maxOf(stayMaxDist, dist)
+            stayLat = (stayLat * (stayCount - 1) + location.latitude) / stayCount
+            stayLng = (stayLng * (stayCount - 1) + location.longitude) / stayCount
+            val staying = (now - stayStart) >= 5 * 60 * 1000L
+            _stayInfoFlow.value = StayInfo(stayLat, stayLng, stayStart, staying)
+        } else {
+            // 离开当前地点 → 结算停留点，保存到数据库
+            finishCurrentStay(now)
+
+            // 保存行程终点（也是下一个停留的起点）
+            saveLocationPoint(location)
+
+            // 开始新的停留
+            stayStart = now
+            stayLat = location.latitude
+            stayLng = location.longitude
+            stayCount = 1
+            stayMaxDist = 0.0
+            _stayInfoFlow.value = StayInfo(location.latitude, location.longitude, now, false)
+        }
+    }
+
+    /** 结算当前停留：只在停留>5min时保存StayPoint */
+    private fun finishCurrentStay(exitTime: Long = System.currentTimeMillis()) {
+        if (stayStart == 0L) return
+        val duration = exitTime - stayStart
+        if (duration < 5 * 60 * 1000L) return
+
+        val dateStr = dateFormat.format(Date(stayStart))
+        if (dateStr == lastSavedStayDate && stayStart == lastSavedStayStart) return
+
+        serviceScope.launch(Dispatchers.IO) {
+            val stay = StayPoint(
+                date = dateStr,
+                enterTime = stayStart,
+                exitTime = exitTime,
+                latCenter = stayLat,
+                lngCenter = stayLng,
+                radius = stayMaxDist.toFloat().coerceIn(10f, 200f)
+            )
+            repository.insertStayPoint(stay)
+            lastSavedStayDate = dateStr
+            lastSavedStayStart = stayStart
+
+            // 生成行程段
+            val saved = repository.getStayPointsByDate(dateStr)
+            if (saved.size >= 2) {
+                val from = saved[saved.size - 2]
+                val to = saved[saved.size - 1]
+                val trips = repository.getTripSegmentsByDate(dateStr)
+                if (trips.none { it.fromStayId == from.id && it.toStayId == to.id }) {
+                    val pts = repository.getLocationPoints(from.exitTime, to.enterTime)
+                    val dist = tripDistance(pts)
+                    val durMs = to.enterTime - from.exitTime
+                    val spd = if (durMs > 0) (dist / durMs / 1000.0).toFloat() else 0f
+                    repository.insertTripSegment(TripSegment(
+                        date = dateStr, startTime = from.exitTime, endTime = to.enterTime,
+                        fromStayId = from.id, toStayId = to.id,
+                        distanceM = dist.toFloat(), transportMode = mode(spd), avgSpeed = spd
+                    ))
+                }
+            }
+        }
+    }
+
+    /** 仅在地点变化时保存单条LocationPoint（行程段距离计算需要） */
+    private fun saveLocationPoint(location: Location) {
+        serviceScope.launch(Dispatchers.IO) {
+            repository.insertLocationPoint(LocationPoint(
                 timestamp = location.time,
                 latitude = location.latitude,
                 longitude = location.longitude,
@@ -138,149 +241,105 @@ class LocationTrackingService : LifecycleService() {
                 accuracy = if (location.hasAccuracy()) location.accuracy else null,
                 speed = if (location.hasSpeed()) location.speed else null,
                 provider = location.provider ?: "unknown",
-                batteryPct = getBatteryPercentage()
-            )
-            repository.insertLocationPoint(point)
-
-            // 更新通知
-            withContext(Dispatchers.Main) {
-                updateNotification(
-                    "${location.latitude.format(4)}, ${location.longitude.format(4)} | " +
-                    "${if (location.hasAccuracy()) "±${location.accuracy.toInt()}m" else ""}"
-                )
-            }
+                batteryPct = -1
+            ))
         }
-
-        lastLocation = location
     }
 
-    /**
-     * 根据速度推断运动状态，动态调整采样频率
-     */
+    private fun updateStayNotification(location: Location) {
+        val acc = if (location.hasAccuracy()) "±${location.accuracy.toInt()}m" else ""
+        val stay = _stayInfoFlow.value
+        val stayStr = if (stay?.isStaying == true) {
+            val sec = (System.currentTimeMillis() - stay.enterTimeMs) / 1000
+            val m = sec / 60; val s = sec % 60
+            " | 停留${m}m${s}s"
+        } else ""
+        updateNotification("${String.format("%.4f", location.latitude)}, ${String.format("%.4f", location.longitude)} | $acc$stayStr")
+    }
+
     @SuppressLint("MissingPermission")
     private fun inferMotionState(location: Location) {
-        val speedKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
-
-        val newState = when {
-            speedKmh < 2 -> MotionState.STATIONARY
-            speedKmh < 8 -> MotionState.WALKING
-            else -> MotionState.VEHICLE
-        }
-
-        if (newState != lastMotionState) {
-            lastMotionState = newState
-            // 重建定位请求以调整间隔
+        val kmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
+        val new = when { kmh < 2 -> MotionState.STATIONARY; kmh < 8 -> MotionState.WALKING; else -> MotionState.VEHICLE }
+        if (new != lastMotionState) {
+            lastMotionState = new
             fusedLocationClient.removeLocationUpdates(locationCallback)
-            val request = buildLocationRequest()
-            fusedLocationClient.requestLocationUpdates(request, locationCallback, mainLooper)
+            fusedLocationClient.requestLocationUpdates(buildLocationRequest(), locationCallback, mainLooper)
         }
     }
 
     private fun buildLocationRequest(): LocationRequest {
-        val intervalMs = when (lastMotionState) {
-            MotionState.STATIONARY -> prefs.stationaryIntervalMs   // 默认60000ms
-            MotionState.WALKING -> prefs.walkingIntervalMs         // 默认10000ms
-            MotionState.VEHICLE -> prefs.vehicleIntervalMs         // 默认5000ms
+        val ms = when (lastMotionState) {
+            MotionState.STATIONARY -> prefs.stationaryIntervalMs
+            MotionState.WALKING -> prefs.walkingIntervalMs
+            MotionState.VEHICLE -> prefs.vehicleIntervalMs
         }
-
-        return LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, intervalMs)
-            .setMinUpdateIntervalMillis(intervalMs / 2)
+        return LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, ms)
+            .setMinUpdateIntervalMillis(ms / 2)
             .setWaitForAccurateLocation(false)
             .build()
     }
 
-    // --- WakeLock ---
+    private fun mode(spd: Float): String {
+        val k = spd * 3.6
+        return when { k < 2 -> "stationary"; k < 8 -> "walk"; k < 25 -> "bike"; k < 120 -> "car"; else -> "train" }
+    }
 
+    private fun tripDistance(pts: List<LocationPoint>): Double {
+        if (pts.size < 2) return 0.0
+        var t = 0.0
+        for (i in 1 until pts.size) t += haversine(pts[i-1].latitude, pts[i-1].longitude, pts[i].latitude, pts[i].longitude)
+        return t
+    }
+
+    private fun haversine(la1: Double, ln1: Double, la2: Double, ln2: Double): Double {
+        val r = 6371000.0
+        val dLa = Math.toRadians(la2 - la1); val dLn = Math.toRadians(ln2 - ln1)
+        val a = Math.sin(dLa/2).let{it*it} + Math.cos(Math.toRadians(la1))*Math.cos(Math.toRadians(la2))*Math.sin(dLn/2).let{it*it}
+        return r * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+    }
+
+    // --- WakeLock ---
     @SuppressLint("WakelockTimeout")
     private fun acquireWakeLock() {
         if (wakeLock?.isHeld == true) return
-        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "lifetrack::location-tracking"
-        ).apply { acquire() }
+        wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lifetrack::tracking").apply { acquire() }
     }
+    private fun releaseWakeLock() { wakeLock?.let { if (it.isHeld) it.release() }; wakeLock = null }
 
-    private fun releaseWakeLock() {
-        wakeLock?.let {
-            if (it.isHeld) it.release()
-        }
-        wakeLock = null
-    }
-
-    // --- 通知 ---
-
+    // --- Notification ---
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                NOTIFICATION_CHANNEL_ID,
-                "轨迹记录",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "持续记录您的位置轨迹"
-                setShowBadge(false)
-                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
-            }
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(
+                NotificationChannel(NOTIFICATION_CHANNEL_ID, "轨迹记录", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "持续记录您的位置轨迹"; setShowBadge(false); lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+                })
         }
     }
-
     private fun buildNotification(text: String): Notification {
-        val openIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0, openIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val stopIntent = Intent(this, LocationTrackingService::class.java).apply {
-            action = ACTION_STOP
-        }
-        val stopPendingIntent = PendingIntent.getService(
-            this, 1, stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
+        val pi = PendingIntent.getActivity(this, 0,
+            Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_SINGLE_TOP },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val si = PendingIntent.getService(this, 1,
+            Intent(this, LocationTrackingService::class.java).apply { action = ACTION_STOP },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("足迹日记")
-            .setContentText(text)
-            .setSmallIcon(R.drawable.ic_location_dot)
-            .setContentIntent(pendingIntent)
-            .addAction(R.drawable.ic_stop, "停止记录", stopPendingIntent)
-            .setOngoing(true)
-            .setSilent(true)
-            .build()
+            .setContentTitle("足迹日记").setContentText(text).setSmallIcon(R.drawable.ic_location_dot)
+            .setContentIntent(pi).addAction(R.drawable.ic_stop, "停止记录", si).setOngoing(true).setSilent(true).build()
     }
-
     private fun updateNotification(text: String) {
-        val notification = buildNotification(text)
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, notification)
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(text))
     }
 
-    // --- Utils ---
-
-    private fun getBatteryPercentage(): Int {
-        // 简化：实际需要注册BatteryChanged receiver
-        return -1
-    }
-
-    private fun Double.format(digits: Int) = String.format("%.${digits}f", this)
+    private fun Double.f4() = String.format("%.4f", this)
 
     override fun onBind(intent: Intent): IBinder? = null
-
     override fun onDestroy() {
         super.onDestroy()
+        finishCurrentStay()
         releaseWakeLock()
         fusedLocationClient.removeLocationUpdates(locationCallback)
         _isTracking.value = false
-    }
-
-    companion object {
-        const val ACTION_START = "com.elephenman.lifetrack.ACTION_START"
-        const val ACTION_STOP = "com.elephenman.lifetrack.ACTION_STOP"
-        const val ACTION_TOGGLE = "com.elephenman.lifetrack.ACTION_TOGGLE"
     }
 }
