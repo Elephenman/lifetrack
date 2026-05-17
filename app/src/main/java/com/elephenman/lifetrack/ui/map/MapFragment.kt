@@ -75,6 +75,7 @@ class MapFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        binding.fabMyLocation.setOnClickListener { centerOnMyLocation() }
         observeData()
     }
 
@@ -121,6 +122,10 @@ class MapFragment : Fragment() {
         viewModel.tripSegments.observe(viewLifecycleOwner) { trips ->
             drawFootprint(viewModel.stayPoints.value ?: emptyList(), trips)
         }
+        // GPS轨迹线
+        viewModel.locationPoints.observe(viewLifecycleOwner) { points ->
+            drawTrajectory(points)
+        }
 
         // 实时停留信息 → 坐标显示
         viewLifecycleOwner.lifecycleScope.launch {
@@ -134,11 +139,13 @@ class MapFragment : Fragment() {
 
     private fun drawFootprint(stays: List<com.elephenman.lifetrack.data.entity.StayPoint>,
                                trips: List<com.elephenman.lifetrack.data.entity.TripSegment>) {
-        // 保留位置图层
+        // 保留位置图层 + GPS轨迹线
+        val trajectory = mapView.overlays.find { it is Polyline && it.id == "gps_trajectory" }
         mapView.overlays.clear()
         if (locationOverlay != null) mapView.overlays.add(locationOverlay)
+        if (trajectory != null) mapView.overlays.add(trajectory)
 
-        if (stays.isEmpty()) return
+        if (stays.isEmpty()) { mapView.invalidate(); return }
 
         val allPoints = mutableListOf<GeoPoint>()
 
@@ -191,6 +198,43 @@ class MapFragment : Fragment() {
         }
 
         mapView.invalidate()
+    }
+
+    private fun drawTrajectory(points: List<com.elephenman.lifetrack.data.entity.LocationPoint>) {
+        // 移除旧轨迹线
+        val old = mapView.overlays.find { it is Polyline && it.id == "gps_trajectory" }
+        if (old != null) mapView.overlays.remove(old)
+        if (points.size < 2) { mapView.invalidate(); return }
+
+        val geoPoints = points.map { GeoPoint(it.latitude, it.longitude) }
+        val line = Polyline().apply {
+            id = "gps_trajectory"
+            setPoints(geoPoints)
+            outlinePaint.apply {
+                color = Color.parseColor("#AA2196F3")
+                strokeWidth = 5f
+                isAntiAlias = true
+                alpha = 180
+            }
+        }
+        // 插入到位置图层下方、停留点下方
+        val insertIdx = if (mapView.overlays.any { it is Marker }) {
+            mapView.overlays.indexOfLast { it is Marker }
+        } else {
+            mapView.overlays.size
+        }
+        mapView.overlays.add(insertIdx, line)
+        mapView.invalidate()
+    }
+
+    private fun centerOnMyLocation() {
+        val loc = locationOverlay?.myLocation
+        if (loc != null) {
+            mapView.controller.animateTo(loc)
+            mapView.controller.setZoom(16)
+        } else {
+            android.widget.Toast.makeText(requireContext(), "暂未获取定位", android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onResume() {

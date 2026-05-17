@@ -30,4 +30,10 @@ interface LocationPointDao {
 
     @Query("DELETE FROM location_point WHERE timestamp BETWEEN :startTime AND :endTime")
     suspend fun deleteByTimeRange(startTime: Long, endTime: Long)
+
+    @Query("SELECT * FROM location_point WHERE timestamp >= :startTime AND timestamp < :endTime ORDER BY timestamp ASC")
+    suspend fun getByDateRange(startTime: Long, endTime: Long): List<LocationPoint>
+
+    @Query("SELECT * FROM location_point WHERE timestamp >= :startTime AND timestamp < :endTime ORDER BY timestamp ASC")
+    fun getByDateRangeFlow(startTime: Long, endTime: Long): Flow<List<LocationPoint>>
 }

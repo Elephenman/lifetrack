@@ -39,12 +39,13 @@ class MapViewModel @Inject constructor(
     fun loadDate(date: Date) {
         val dateStr = dateFormat.format(date)
         viewModelScope.launch {
-            val stays = repository.getStayPointsByDate(dateStr)
+            _locationPoints.value = repository.getLocationPointsByDate(dateStr)
+            _stayPoints.value = repository.getStayPointsByDate(dateStr)
             _tripSegments.value = repository.getTripSegmentsByDate(dateStr)
 
             // 回填 poiName=null 的停留点
             val updated = mutableListOf<StayPoint>()
-            for (stay in stays) {
+            for (stay in _stayPoints.value!!) {
                 if (stay.poiName == null) {
                     val name = placeNameResolver.resolve(stay.latCenter, stay.lngCenter)
                     if (name != null) {

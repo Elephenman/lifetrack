@@ -19,6 +19,22 @@ class LocationRepository @Inject constructor(
     fun getLocationPointsFlow(startTime: Long, endTime: Long) = locationPointDao.getByTimeRangeFlow(startTime, endTime)
     suspend fun getRecentPoints(limit: Int = 100) = locationPointDao.getRecent(limit)
     suspend fun deletePointsBefore(timestamp: Long) = locationPointDao.deleteBefore(timestamp)
+    suspend fun getLocationPointsByDate(dateStr: String): List<LocationPoint> {
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val start = fmt.parse(dateStr)!!.time
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = start }
+        cal.add(java.util.Calendar.DAY_OF_MONTH, 1)
+        val end = cal.timeInMillis
+        return locationPointDao.getByDateRange(start, end)
+    }
+    fun getLocationPointsByDateFlow(dateStr: String): kotlinx.coroutines.flow.Flow<List<LocationPoint>> {
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val start = fmt.parse(dateStr)!!.time
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = start }
+        cal.add(java.util.Calendar.DAY_OF_MONTH, 1)
+        val end = cal.timeInMillis
+        return locationPointDao.getByDateRangeFlow(start, end)
+    }
 
     // StayPoint
     suspend fun insertStayPoint(point: StayPoint) = stayPointDao.insert(point)
