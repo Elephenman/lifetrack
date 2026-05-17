@@ -6,17 +6,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.elephenman.lifetrack.data.entity.LocationPoint
 import com.elephenman.lifetrack.data.entity.StayPoint
+import com.elephenman.lifetrack.data.entity.TripSegment
 import com.elephenman.lifetrack.data.repository.LocationRepository
+import com.elephenman.lifetrack.util.PlaceNameResolver
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
-import java.util.Calendar
 import javax.inject.Inject
 
 @HiltViewModel
 class MapViewModel @Inject constructor(
-    private val repository: LocationRepository
+    private val repository: LocationRepository,
+    private val placeNameResolver: PlaceNameResolver
 ) : ViewModel() {
 
     private val _locationPoints = MutableLiveData<List<LocationPoint>>()
@@ -25,41 +27,38 @@ class MapViewModel @Inject constructor(
     private val _stayPoints = MutableLiveData<List<StayPoint>>()
     val stayPoints: LiveData<List<StayPoint>> = _stayPoints
 
+    private val _tripSegments = MutableLiveData<List<TripSegment>>()
+    val tripSegments: LiveData<List<TripSegment>> = _tripSegments
+
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
-    init {
-        loadToday()
-    }
+    init { loadToday() }
 
-    fun loadToday() {
-        val dateStr = dateFormat.format(Date())
-        val calendar = Calendar.getInstance()
-        calendar.set(Calendar.HOUR_OF_DAY, 0)
-        calendar.set(Calendar.MINUTE, 0)
-        calendar.set(Calendar.SECOND, 0)
-        val dayStart = calendar.timeInMillis
-        calendar.set(Calendar.HOUR_OF_DAY, 23)
-        calendar.set(Calendar.MINUTE, 59)
-        calendar.set(Calendar.SECOND, 59)
-        val dayEnd = calendar.timeInMillis
-
-        viewModelScope.launch {
-            _locationPoints.value = repository.getLocationPoints(dayStart, dayEnd)
-            _stayPoints.value = repository.getStayPointsByDate(dateStr)
-        }
-    }
+    fun loadToday() = loadDate(Date())
 
     fun loadDate(date: Date) {
         val dateStr = dateFormat.format(date)
-        val calendar = Calendar.getInstance().apply { time = date }
-        calendar.set(Calendar.HOUR_OF_DAY, 0); calendar.set(Calendar.MINUTE, 0); calendar.set(Calendar.SECOND, 0)
-        val dayStart = calendar.timeInMillis
-        calendar.set(Calendar.HOUR_OF_DAY, 23); calendar.set(Calendar.MINUTE, 59); calendar.set(Calendar.SECOND, 59)
-        val dayEnd = calendar.timeInMillis
-
         viewModelScope.launch {
-            _locationPoints.value = repository.getLocationPoints(dayStart, dayEnd)
-            _stayPoints.value = repository.getStayPointsByDate(dateStr)
+            val stays = repository.getStayPointsByDate(dateStr)
+            _tripSegments.value = repository.getTripSegmentsByDate(dateStr)
+
+            // 回填 poiName=null 的停留点
+            val updated = mutableListOf<StayPoint>()
+            for (stay in stays) {
+                if (stay.poiName == null) {
+                    val name = placeNameResolver.resolve(stay.latCenter, stay.lngCenter)
+                    if (name != null) {
+                        val patched = stay.copy(poiName = name)
+                        repository.updateStayPoint(patched)
+                        updated.add(patched)
+                    } else {
+                        updated.add(stay)
+                    }
+                } else {
+                    updated.add(stay)
+                }
+            }
+            _stayPoints.value = updated
         }
     }
 }

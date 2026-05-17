@@ -19,8 +19,8 @@ import kotlin.math.*
 class StayPointDetector @Inject constructor() {
 
     companion object {
-        private const val DISTANCE_THRESHOLD_M = 50.0    // 停留距离阈值(m)
-        private const val TIME_THRESHOLD_MS = 5 * 60 * 1000L  // 停留时间阈值(5min)
+        private const val DISTANCE_THRESHOLD_M = 100.0    // 停留距离阈值(m)
+        private const val TIME_THRESHOLD_MS = 10 * 60 * 1000L  // 停留时间阈值(10min)
     }
 
     /**

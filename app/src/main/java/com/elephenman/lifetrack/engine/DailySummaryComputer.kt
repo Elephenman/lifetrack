@@ -47,7 +47,16 @@ class DailySummaryComputer @Inject constructor(
                 tripSegments = existingTripSegments
             }
 
-            val totalDistance = tripSegments.sumOf { (it.distanceM ?: 0f).toDouble() }.toFloat()
+            val totalDistance = tripSegments.sumOf {
+                val d = it.distanceM ?: 0f
+                if (d > 0f) d.toDouble() else {
+                    // 没有距离数据时用两个停留点的haversine距离
+                    val from = stayPoints.find { s -> s.id == it.fromStayId }
+                    val to = stayPoints.find { s -> s.id == it.toStayId }
+                    if (from != null && to != null) haversine(from.latCenter, from.lngCenter, to.latCenter, to.lngCenter)
+                    else 0.0
+                }
+            }.toFloat()
             val firstMove = points.firstOrNull()?.timestamp
             val lastMove = points.lastOrNull()?.timestamp
             val outdoorMinutes = if (firstMove != null && lastMove != null) {
@@ -82,5 +91,12 @@ class DailySummaryComputer @Inject constructor(
         val dayEnd = cal.timeInMillis
 
         return Pair(dayStart, dayEnd)
+    }
+
+    private fun haversine(la1: Double, ln1: Double, la2: Double, ln2: Double): Double {
+        val r = 6371000.0
+        val dLa = Math.toRadians(la2 - la1); val dLn = Math.toRadians(ln2 - ln1)
+        val a = Math.sin(dLa/2).let{it*it} + Math.cos(Math.toRadians(la1))*Math.cos(Math.toRadians(la2))*Math.sin(dLn/2).let{it*it}
+        return r * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
     }
 }

@@ -61,4 +61,14 @@ class PreferenceManager @Inject constructor(context: Context) {
     var tileDownloadWifiOnly: Boolean
         get() = prefs.getBoolean("tile_download_wifi_only", true)
         set(value) = prefs.edit().putBoolean("tile_download_wifi_only", value).apply()
+
+    // --- 逆地理编码 ---
+
+    var gaodeApiKey: String?
+        get() = prefs.getString("gaode_api_key", null)
+        set(value) = prefs.edit().putString("gaode_api_key", value).apply()
+
+    var tencentMapKey: String?
+        get() = prefs.getString("tencent_map_key", null)
+        set(value) = prefs.edit().putString("tencent_map_key", value).apply()
 }

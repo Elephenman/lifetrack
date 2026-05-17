@@ -31,6 +31,7 @@ class LocationTrackingService : LifecycleService() {
 
     @Inject lateinit var repository: LocationRepository
     @Inject lateinit var prefs: PreferenceManager
+    @Inject lateinit var placeNameResolver: com.elephenman.lifetrack.util.PlaceNameResolver
 
     private val NOTIFICATION_CHANNEL_ID = "lifetrack_location"
     private val NOTIFICATION_ID = 10001
@@ -54,6 +55,7 @@ class LocationTrackingService : LifecycleService() {
     private var stayMaxDist: Double = 0.0
     private var lastSavedStayDate: String = ""
     private var lastSavedStayStart: Long = 0L
+    private var cachedPlaceName: String? = null
     // 移动中：保存起点的单条LocationPoint，用于行程段距离计算
     private var tripStartSaved: Boolean = false
 
@@ -146,44 +148,41 @@ class LocationTrackingService : LifecycleService() {
         val now = location.time
 
         if (stayStart == 0L) {
-            // 开始新的潜在停留
             stayStart = now
             stayLat = location.latitude
             stayLng = location.longitude
             stayCount = 1
             stayMaxDist = 0.0
             tripStartSaved = false
-            // 保存行程起点（用于距离计算）
+            cachedPlaceName = null
             saveLocationPoint(location)
             tripStartSaved = true
             _stayInfoFlow.value = StayInfo(location.latitude, location.longitude, now, false)
+            // 异步解析地名
+            resolvePlaceName(location.latitude, location.longitude)
             return
         }
 
         val dist = haversine(stayLat, stayLng, location.latitude, location.longitude)
 
-        if (dist <= 50.0) {
-            // 还在同一地点 → 不入库，只更新实时状态
+        if (dist <= 100.0) {
             stayCount++
             stayMaxDist = maxOf(stayMaxDist, dist)
             stayLat = (stayLat * (stayCount - 1) + location.latitude) / stayCount
             stayLng = (stayLng * (stayCount - 1) + location.longitude) / stayCount
-            val staying = (now - stayStart) >= 5 * 60 * 1000L
-            _stayInfoFlow.value = StayInfo(stayLat, stayLng, stayStart, staying)
+            val staying = (now - stayStart) >= 10 * 60 * 1000L
+            _stayInfoFlow.value = StayInfo(stayLat, stayLng, stayStart, staying, cachedPlaceName)
         } else {
-            // 离开当前地点 → 结算停留点，保存到数据库
             finishCurrentStay(now)
-
-            // 保存行程终点（也是下一个停留的起点）
             saveLocationPoint(location)
-
-            // 开始新的停留
             stayStart = now
             stayLat = location.latitude
             stayLng = location.longitude
             stayCount = 1
             stayMaxDist = 0.0
+            cachedPlaceName = null
             _stayInfoFlow.value = StayInfo(location.latitude, location.longitude, now, false)
+            resolvePlaceName(location.latitude, location.longitude)
         }
     }
 
@@ -191,19 +190,21 @@ class LocationTrackingService : LifecycleService() {
     private fun finishCurrentStay(exitTime: Long = System.currentTimeMillis()) {
         if (stayStart == 0L) return
         val duration = exitTime - stayStart
-        if (duration < 5 * 60 * 1000L) return
+        if (duration < 10 * 60 * 1000L) return
 
         val dateStr = dateFormat.format(Date(stayStart))
         if (dateStr == lastSavedStayDate && stayStart == lastSavedStayStart) return
 
         serviceScope.launch(Dispatchers.IO) {
+            val name = cachedPlaceName ?: placeNameResolver.resolve(stayLat, stayLng)
             val stay = StayPoint(
                 date = dateStr,
                 enterTime = stayStart,
                 exitTime = exitTime,
                 latCenter = stayLat,
                 lngCenter = stayLng,
-                radius = stayMaxDist.toFloat().coerceIn(10f, 200f)
+                radius = stayMaxDist.toFloat().coerceIn(10f, 200f),
+                poiName = name
             )
             repository.insertStayPoint(stay)
             lastSavedStayDate = dateStr
@@ -217,7 +218,7 @@ class LocationTrackingService : LifecycleService() {
                 val trips = repository.getTripSegmentsByDate(dateStr)
                 if (trips.none { it.fromStayId == from.id && it.toStayId == to.id }) {
                     val pts = repository.getLocationPoints(from.exitTime, to.enterTime)
-                    val dist = tripDistance(pts)
+                    val dist = if (pts.size >= 2) tripDistance(pts) else haversine(from.latCenter, from.lngCenter, to.latCenter, to.lngCenter)
                     val durMs = to.enterTime - from.exitTime
                     val spd = if (durMs > 0) (dist / durMs / 1000.0).toFloat() else 0f
                     repository.insertTripSegment(TripSegment(
@@ -225,6 +226,19 @@ class LocationTrackingService : LifecycleService() {
                         fromStayId = from.id, toStayId = to.id,
                         distanceM = dist.toFloat(), transportMode = mode(spd), avgSpeed = spd
                     ))
+                }
+            }
+        }
+    }
+
+    private fun resolvePlaceName(lat: Double, lng: Double) {
+        serviceScope.launch(Dispatchers.IO) {
+            val name = placeNameResolver.resolve(lat, lng)
+            if (name != null) {
+                cachedPlaceName = name
+                val current = _stayInfoFlow.value
+                if (current != null) {
+                    _stayInfoFlow.value = current.copy(placeName = name)
                 }
             }
         }
@@ -270,9 +284,9 @@ class LocationTrackingService : LifecycleService() {
 
     private fun buildLocationRequest(): LocationRequest {
         val ms = when (lastMotionState) {
-            MotionState.STATIONARY -> prefs.stationaryIntervalMs
-            MotionState.WALKING -> prefs.walkingIntervalMs
-            MotionState.VEHICLE -> prefs.vehicleIntervalMs
+            MotionState.STATIONARY -> 60_000L
+            MotionState.WALKING -> 20_000L
+            MotionState.VEHICLE -> 10_000L
         }
         return LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, ms)
             .setMinUpdateIntervalMillis(ms / 2)

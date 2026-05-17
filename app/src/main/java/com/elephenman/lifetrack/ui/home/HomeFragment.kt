@@ -71,7 +71,8 @@ class HomeFragment : Fragment() {
         viewModel.currentStayInfo.observe(viewLifecycleOwner) { stayInfo ->
             if (stayInfo != null) {
                 binding.cardCurrentStay.visibility = View.VISIBLE
-                binding.tvCurrentStayDetail.text = String.format("%.4f, %.4f", stayInfo.latCenter, stayInfo.lngCenter)
+                val coord = String.format("%.4f, %.4f", stayInfo.latCenter, stayInfo.lngCenter)
+                binding.tvCurrentStayDetail.text = if (stayInfo.placeName != null) "${stayInfo.placeName} ($coord)" else coord
                 binding.tvCurrentStayTitle.text = if (stayInfo.isStaying) "正在停留" else "定位中"
             } else {
                 binding.cardCurrentStay.visibility = View.GONE

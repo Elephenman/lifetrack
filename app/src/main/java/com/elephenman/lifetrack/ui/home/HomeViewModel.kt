@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 import javax.inject.Inject
+import kotlin.math.*
 
 data class TripItem(
     val type: Type,
@@ -43,7 +44,8 @@ data class TimelineSegment(
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repository: LocationRepository,
-    private val dailySummaryComputer: DailySummaryComputer
+    private val dailySummaryComputer: DailySummaryComputer,
+    private val placeNameResolver: com.elephenman.lifetrack.util.PlaceNameResolver
 ) : ViewModel() {
 
     private val _date = MutableLiveData<Date>()
@@ -61,7 +63,6 @@ class HomeViewModel @Inject constructor(
     private val _currentStayInfo = MutableLiveData<StayInfo?>()
     val currentStayInfo: LiveData<StayInfo?> = _currentStayInfo
 
-    // 实时计时器：每秒刷新停留时长
     private val _stayDurationText = MutableLiveData<String>()
     val stayDurationText: LiveData<String> = _stayDurationText
 
@@ -69,9 +70,7 @@ class HomeViewModel @Inject constructor(
 
     private val dateStrFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
-    init {
-        loadToday()
-    }
+    init { loadToday() }
 
     fun loadToday() {
         _date.value = Date()
@@ -87,34 +86,40 @@ class HomeViewModel @Inject constructor(
             if (existing == null || isToday) {
                 dailySummaryComputer.computeAndSaveDailySummary(dateStr)
             }
-            repository.getDailySummaryFlow(dateStr).collect { summary ->
-                _dailySummary.postValue(summary)
-            }
+            repository.getDailySummaryFlow(dateStr).collect { _dailySummary.postValue(it) }
         }
         viewModelScope.launch {
             combine(
                 repository.getStayPointsByDateFlow(dateStr),
                 repository.getTripSegmentsByDateFlow(dateStr)
             ) { stays, trips ->
-                buildTripItems(stays, trips, date)
+                // 回填 poiName=null 的停留点
+                val patched = stays.map { stay ->
+                    if (stay.poiName == null) {
+                        val name = placeNameResolver.resolve(stay.latCenter, stay.lngCenter)
+                        if (name != null) {
+                            val p = stay.copy(poiName = name)
+                            repository.updateStayPoint(p)
+                            p
+                        } else stay
+                    } else stay
+                }
+                buildTripItems(patched, trips)
             }.collect { items ->
                 _tripItems.postValue(items)
-                _timelineData.postValue(items.map { buildTimelineSegment(it, date) })
+                _timelineData.postValue(items.map { buildTimelineSegment(it) })
             }
         }
 
-        // 监听实时停留状态
         if (isToday) {
             viewModelScope.launch {
                 LocationTrackingService.stayInfoFlow.collect { info ->
                     _currentStayInfo.postValue(info)
-                    // 启动/停止计时器
                     stayTimerJob?.cancel()
                     if (info != null && info.enterTimeMs > 0) {
                         stayTimerJob = viewModelScope.launch {
                             while (true) {
-                                val elapsed = System.currentTimeMillis() - info.enterTimeMs
-                                _stayDurationText.postValue(formatElapsed(elapsed))
+                                _stayDurationText.postValue(formatElapsed(System.currentTimeMillis() - info.enterTimeMs))
                                 delay(1000)
                             }
                         }
@@ -127,66 +132,82 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun isSameDay(d1: Date, d2: Date): Boolean {
-        val cal1 = Calendar.getInstance().apply { time = d1 }
-        val cal2 = Calendar.getInstance().apply { time = d2 }
-        return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR) &&
-               cal1.get(Calendar.DAY_OF_YEAR) == cal2.get(Calendar.DAY_OF_YEAR)
+        val c1 = Calendar.getInstance().apply { time = d1 }
+        val c2 = Calendar.getInstance().apply { time = d2 }
+        return c1.get(Calendar.YEAR) == c2.get(Calendar.YEAR) && c1.get(Calendar.DAY_OF_YEAR) == c2.get(Calendar.DAY_OF_YEAR)
     }
 
-    private fun buildTripItems(stays: List<StayPoint>, trips: List<TripSegment>, date: Date): List<TripItem> {
-        val items = mutableListOf<TripItem>()
-        val calendar = Calendar.getInstance().apply { time = date }
+    /**
+     * 合并100m内的停留点为一个条目，显示地名
+     */
+    private fun buildTripItems(stays: List<StayPoint>, trips: List<TripSegment>): List<TripItem> {
+        if (stays.isEmpty()) return emptyList()
 
-        if (stays.isNotEmpty() && stays.first().enterTime > getDayStart(date)) {
-            items.add(TripItem(
-                type = TripItem.Type.STAY,
-                startTime = getDayStart(date),
-                endTime = stays.first().enterTime,
-                label = "在家",
-                duration = formatDuration(stays.first().enterTime - getDayStart(date)),
-                icon = "🏠"
-            ))
+        // 合并100m内的相邻停留点
+        val merged = mutableListOf<MergedStay>()
+        var current = MergedStay(stays[0])
+
+        for (i in 1 until stays.size) {
+            val s = stays[i]
+            val dist = haversine(current.latCenter, current.lngCenter, s.latCenter, s.lngCenter)
+            if (dist <= 100.0) {
+                // 合并：扩展时间范围
+                current = MergedStay(
+                    enterTime = current.enterTime,
+                    exitTime = s.exitTime,
+                    latCenter = (current.latCenter + s.latCenter) / 2,
+                    lngCenter = (current.lngCenter + s.lngCenter) / 2,
+                    name = s.poiName ?: current.name
+                )
+            } else {
+                merged.add(current)
+                current = MergedStay(s)
+            }
         }
+        merged.add(current)
 
-        stays.forEachIndexed { index, stay ->
+        val items = mutableListOf<TripItem>()
+
+        for (stay in merged) {
+            val coord = String.format("%.4f, %.4f", stay.latCenter, stay.lngCenter)
+            val label = if (stay.name != null) "${stay.name} ($coord)" else coord
             items.add(TripItem(
                 type = TripItem.Type.STAY,
                 startTime = stay.enterTime,
                 endTime = stay.exitTime,
-                label = stay.poiName ?: formatCoord(stay.latCenter, stay.lngCenter),
+                label = label,
                 duration = formatDuration(stay.exitTime - stay.enterTime),
                 icon = "📍"
             ))
-
-            val trip = trips.find { it.fromStayId == stay.id || (it.startTime >= stay.exitTime && it.startTime <= stay.exitTime + 60000) }
-            if (trip != null) {
-                items.add(TripItem(
-                    type = TripItem.Type.TRIP,
-                    startTime = trip.startTime,
-                    endTime = trip.endTime,
-                    label = getTransportLabel(trip.transportMode),
-                    duration = formatDuration(trip.endTime - trip.startTime),
-                    icon = getTransportIcon(trip.transportMode),
-                    transportMode = trip.transportMode
-                ))
-            }
         }
 
-        if (stays.isNotEmpty() && stays.last().exitTime < getDayEnd(date)) {
+        // 行程段
+        for (trip in trips) {
             items.add(TripItem(
-                type = TripItem.Type.STAY,
-                startTime = stays.last().exitTime,
-                endTime = getDayEnd(date),
-                label = "在家",
-                duration = formatDuration(getDayEnd(date) - stays.last().exitTime),
-                icon = "🏠"
+                type = TripItem.Type.TRIP,
+                startTime = trip.startTime,
+                endTime = trip.endTime,
+                label = getTransportLabel(trip.transportMode),
+                duration = formatDuration(trip.endTime - trip.startTime),
+                icon = getTransportIcon(trip.transportMode),
+                transportMode = trip.transportMode
             ))
         }
 
         return items.sortedBy { it.startTime }
     }
 
-    private fun buildTimelineSegment(item: TripItem, date: Date): TimelineSegment {
+    private data class MergedStay(
+        val enterTime: Long,
+        val exitTime: Long,
+        val latCenter: Double,
+        val lngCenter: Double,
+        val name: String?
+    ) {
+        constructor(s: StayPoint) : this(s.enterTime, s.exitTime, s.latCenter, s.lngCenter, s.poiName)
+    }
+
+    private fun buildTimelineSegment(item: TripItem): TimelineSegment {
         val color = when (item.type) {
             TripItem.Type.STAY -> android.graphics.Color.parseColor("#4CAF50")
             TripItem.Type.TRIP -> when (item.transportMode) {
@@ -199,50 +220,29 @@ class HomeViewModel @Inject constructor(
         return TimelineSegment(item.startTime, item.endTime, item.label, color, item.type)
     }
 
-    private fun getDayStart(date: Date): Long {
-        val cal = Calendar.getInstance().apply { time = date; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
-        return cal.timeInMillis
-    }
-
-    private fun getDayEnd(date: Date): Long {
-        val cal = Calendar.getInstance().apply { time = date; set(Calendar.HOUR_OF_DAY, 23); set(Calendar.MINUTE, 59); set(Calendar.SECOND, 59); set(Calendar.MILLISECOND, 999) }
-        return cal.timeInMillis
-    }
-
     private fun formatDuration(ms: Long): String {
-        val minutes = ms / 60000
-        val h = minutes / 60
-        val m = minutes % 60
+        val min = ms / 60000; val h = min / 60; val m = min % 60
         return if (h > 0) "${h}h${m}m" else "${m}min"
     }
 
-    private fun formatCoord(lat: Double, lng: Double): String {
-        return String.format("%.4f, %.4f", lat, lng)
-    }
-
     private fun getTransportLabel(mode: String?): String = when (mode) {
-        "walk" -> "步行"
-        "bike" -> "骑行"
-        "car", "bus" -> "乘车"
-        "train" -> "火车"
-        else -> "移动"
+        "walk" -> "步行"; "bike" -> "骑行"; "car", "bus" -> "乘车"; "train" -> "火车"; else -> "移动"
     }
 
     private fun getTransportIcon(mode: String?): String = when (mode) {
-        "walk" -> "🚶"
-        "bike" -> "🚴"
-        "car", "bus" -> "🚌"
-        "train" -> "🚄"
-        else -> "➡️"
+        "walk" -> "🚶"; "bike" -> "🚴"; "car", "bus" -> "🚌"; "train" -> "🚄"; else -> "➡️"
     }
 
     private fun formatElapsed(ms: Long): String {
-        val totalSec = ms / 1000
-        val h = totalSec / 3600
-        val m = (totalSec % 3600) / 60
-        val s = totalSec % 60
+        val sec = ms / 1000; val h = sec / 3600; val m = (sec % 3600) / 60; val s = sec % 60
         return if (h > 0) String.format("%d:%02d:%02d", h, m, s)
-               else if (m > 0) String.format("%d:%02d", m, s)
-               else "${s}秒"
+               else if (m > 0) String.format("%d:%02d", m, s) else "${s}秒"
+    }
+
+    private fun haversine(la1: Double, ln1: Double, la2: Double, ln2: Double): Double {
+        val r = 6371000.0
+        val dLa = Math.toRadians(la2 - la1); val dLn = Math.toRadians(ln2 - ln1)
+        val a = sin(dLa/2).let{it*it} + cos(Math.toRadians(la1))*cos(Math.toRadians(la2))*sin(dLn/2).let{it*it}
+        return r * 2 * atan2(sqrt(a), sqrt(1-a))
     }
 }

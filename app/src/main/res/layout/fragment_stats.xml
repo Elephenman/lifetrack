@@ -3,40 +3,157 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp">
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:padding="16dp">
 
+        <!-- 周标题 -->
         <TextView
-            android:layout_width="wrap_content"
+            android:id="@+id/tvWeekLabel"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="统计"
-            android:textSize="20sp"
+            android:textSize="16sp"
+            android:textColor="@color/text_primary"
             android:textStyle="bold"
-            android:textColor="@color/text_primary" />
+            android:gravity="center"
+            android:text="本周统计" />
 
-        <com.google.android.material.card.MaterialCardView
-            xmlns:app="http://schemas.android.com/apk/res-auto"
+        <!-- 4格指标卡 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="12dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="8dp"
+                android:background="@color/primary_light">
+                <TextView android:id="@+id/tvActiveDays"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="22sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/primary_dark"
+                    android:text="0" />
+                <TextView android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_secondary"
+                    android:text="活跃天数" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="8dp"
+                android:background="@color/primary_light"
+                android:layout_marginStart="4dp">
+                <TextView android:id="@+id/tvTotalDist"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="22sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/primary_dark"
+                    android:text="0m" />
+                <TextView android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_secondary"
+                    android:text="总出行" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="8dp"
+                android:background="@color/primary_light"
+                android:layout_marginStart="4dp">
+                <TextView android:id="@+id/tvTotalOutdoor"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="22sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/primary_dark"
+                    android:text="0min" />
+                <TextView android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_secondary"
+                    android:text="外出时长" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="8dp"
+                android:background="@color/primary_light"
+                android:layout_marginStart="4dp">
+                <TextView android:id="@+id/tvStayCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="22sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/primary_dark"
+                    android:text="0" />
+                <TextView android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_secondary"
+                    android:text="停留地数" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 常去地点 -->
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp">
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:textStyle="bold"
+            android:text="常去地点" />
 
-            <TextView
-                android:id="@+id/tvWeeklySummary"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:padding="16dp"
-                android:text="暂无数据，开始记录后这里会显示统计"
-                android:textSize="14sp"
-                android:textColor="@color/text_primary"
-                android:lineSpacingExtra="4dp" />
+        <LinearLayout
+            android:id="@+id/layoutTopPlaces"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="vertical" />
 
-        </com.google.android.material.card.MaterialCardView>
+        <!-- 每日明细 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:textStyle="bold"
+            android:text="每日明细" />
+
+        <LinearLayout
+            android:id="@+id/layoutDailyBreakdown"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="vertical" />
 
     </LinearLayout>
 </ScrollView>
